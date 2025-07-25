@@ -1,10 +1,15 @@
+import json
 import os
 import requests
+
+import streamlit as st
+import pandas as pd
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_train_info():
+def fetch_odpt():
     api_key = os.getenv("API_KEY")
     if not api_key:
         raise ValueError("APIキーが設定されていません。 .envファイルを確認してください。")
@@ -20,38 +25,60 @@ def get_train_info():
         return None
 
 def parse_train_info(data):
+    NORMAL_DESCRIPTIONS = ["平常", "遅延はありません"]
+
     if not data:
         return []
 
     parsed_list = []
     for info in data:
-        line_name_full = info.get('odpt:railway', '不明')
-        # 'odpt.Railway:Company.Line' の形式から 'Line' の部分を抽出
-        line_name = line_name_full.split('.')[-1]
+        line_name_full = info.get('odpt:railway')
+        line_name = line_name_full.split(':')[-1]
 
-        status_ja = info.get('odpt:trainInformationStatus', {}).get('ja')
-        if status_ja and '遅延' in status_ja:
-            status = "遅延あり"
-        else:
-            status = "平常運転"
-
-        description = info.get('odpt:trainInformationText', {}).get('ja', '情報なし')
+        description = info.get('odpt:trainInformationText')
+        is_delayed = not any(normal in description.get("ja") for normal in NORMAL_DESCRIPTIONS)
 
         parsed_list.append({
             "line_name": line_name,
-            "status": status,
-            "description": description
+            "description": description.get("ja"),
+            "is_delayed": is_delayed
         })
     return parsed_list
 
-if __name__ == '__main__':
-    raw_info = get_train_info()
+def get_train_info():
+    raw_info = fetch_odpt()
     if raw_info:
         parsed_info = parse_train_info(raw_info)
-        for train in parsed_info:
-            print(f"路線名: {train['line_name']}")
-            print(f"  運行状況: {train['status']}")
-            print(f"  詳細: {train['description']}")
-            print("---")
+        return json.dumps(parsed_info, ensure_ascii=False)
     else:
-        print("情報の取得に失敗しました。")
+        error_message = {"error": "情報の取得に失敗しました。"}
+        return json.dumps(error_message, ensure_ascii=False)
+
+if __name__ == '__main__':
+    st.title("鉄道運行情報")
+
+    train_info = get_train_info()
+
+    train_info_list = []
+    if isinstance(train_info, str):
+        try:
+            train_info_list = json.loads(train_info)
+        except json.JSONDecodeError:
+            st.error("運行情報の取得に失敗しました。形式が正しくありません。")
+            st.write("受信したデータ:")
+            st.code(train_info)
+            train_info_list = None
+
+    if isinstance(train_info_list, dict) and "error" in train_info_list:
+        st.error(train_info_list["error"])
+    else:
+        delayed_lines = []
+        for info in train_info_list:
+            if info.get("is_delayed"):
+                delayed_lines.append(info)
+
+        if delayed_lines:
+            df = pd.DataFrame(delayed_lines)
+            st.dataframe(df)
+        else:
+            st.success("現在、遅延情報はありません。")
