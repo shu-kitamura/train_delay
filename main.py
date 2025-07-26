@@ -55,7 +55,12 @@ def get_train_info():
         return json.dumps(error_message, ensure_ascii=False)
 
 if __name__ == '__main__':
-    st.title("鉄道運行情報")
+    st.title("鉄道遅延情報")
+
+    st.set_page_config(
+        page_title="鉄道遅延情報",
+        page_icon="🚆",
+    )
 
     train_info = get_train_info()
 
